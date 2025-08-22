@@ -1,4 +1,5 @@
 import os
+# print("Current working directory:", os.getcwd())
 import json
 import glob
 from datetime import datetime
@@ -20,6 +21,7 @@ class ScreenshotUploader:
     def __init__(self):
         print("Initializing uploader...")
         self.service = None
+        self.drive_files = {}  # Will store files currently in Google Drive
         try:
             self.uploaded_files = self.load_upload_log()
             print("Upload log loaded successfully")
@@ -56,7 +58,6 @@ class ScreenshotUploader:
         print("Starting authentication...")
         creds = None
         
-        # The file token.json stores the user's access and refresh tokens.
         if os.path.exists('token.json'):
             print("Found existing token.json")
             try:
@@ -65,7 +66,6 @@ class ScreenshotUploader:
             except Exception as e:
                 print(f"Error loading token.json: {e}")
         
-        # If there are no (valid) credentials available, let the user log in.
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 print("Refreshing expired credentials...")
@@ -78,7 +78,6 @@ class ScreenshotUploader:
             
             if not creds:
                 print("Starting new authentication flow...")
-                print("This will open your browser for Google authentication")
                 try:
                     flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
                     creds = flow.run_local_server(port=0)
@@ -87,7 +86,6 @@ class ScreenshotUploader:
                     print(f"Authentication failed: {e}")
                     return False
             
-            # Save the credentials for the next run
             try:
                 with open('token.json', 'w') as token:
                     token.write(creds.to_json())
@@ -103,59 +101,131 @@ class ScreenshotUploader:
             print(f"Error building Drive service: {e}")
             return False
     
-    def get_newest_screenshot(self):
-        """Find the newest .jpg file in the local folder"""
-        print(f"Scanning folder: {LOCAL_FOLDER}")
+    def scan_google_drive_folder(self):
+        """Scan the Google Drive folder to see what files already exist"""
+        print("📡 Scanning Google Drive folder for existing files...")
+        
+        try:
+            # Query for all files in the specific Drive folder
+            query = f"'{DRIVE_FOLDER_ID}' in parents and trashed=false"
+            results = self.service.files().list(
+                q=query,
+                fields="files(name, id, createdTime, size)"
+            ).execute()
+            
+            files = results.get('files', [])
+            self.drive_files = {}
+            
+            print(f"📊 Found {len(files)} files in Google Drive folder:")
+            for file in files:
+                filename = file['name']
+                file_id = file['id']
+                created_time = file.get('createdTime', 'Unknown')
+                file_size = file.get('size', '0')
+                
+                # Convert size to MB for display
+                size_mb = int(file_size) / (1024 * 1024) if file_size.isdigit() else 0
+                
+                self.drive_files[filename] = {
+                    'id': file_id,
+                    'created': created_time,
+                    'size': file_size
+                }
+                
+                print(f"  📁 {filename} ({size_mb:.2f} MB)")
+            
+            print(f"✅ Google Drive scan completed - {len(self.drive_files)} files found")
+            return True
+            
+        except HttpError as error:
+            print(f"❌ Error scanning Google Drive folder: {error}")
+            return False
+    
+    def get_all_screenshots(self):
+        """Find ALL .jpg files in the local folder"""
+        print(f"📂 Scanning local folder: {LOCAL_FOLDER}")
         if not os.path.exists(LOCAL_FOLDER):
             print(f"❌ Folder does not exist: {LOCAL_FOLDER}")
-            return None
+            return []
             
         jpg_pattern = os.path.join(LOCAL_FOLDER, "*.jpg")
         jpg_files = glob.glob(jpg_pattern)
         
-        print(f"Found {len(jpg_files)} .jpg files")
-        
-        if not jpg_files:
-            print("❌ No .jpg files found in the folder")
-            return None
-        
-        # Find the newest file by modification time
-        newest_file = max(jpg_files, key=os.path.getmtime)
-        return newest_file
+        print(f"📊 Found {len(jpg_files)} .jpg files in local folder")
+        return jpg_files
     
-    def file_exists_in_drive(self, filename):
-        """Check if a file with the same name already exists in the Drive folder"""
-        try:
-            query = f"'{DRIVE_FOLDER_ID}' in parents and name='{filename}' and trashed=false"
-            results = self.service.files().list(q=query).execute()
-            items = results.get('files', [])
-            return len(items) > 0
-        except HttpError as error:
-            print(f"❌ Error checking file existence: {error}")
-            return False
+    def get_missing_screenshots(self, all_local_files):
+        """Compare local files with Google Drive files to find missing ones"""
+        print("🔍 Comparing local folder with Google Drive folder...")
+        missing_files = []
+        
+        for file_path in all_local_files:
+            filename = os.path.basename(file_path)
+            
+            # Check if file exists in Google Drive
+            if filename not in self.drive_files:
+                missing_files.append(file_path)
+                print(f"❌ Missing in Drive: {filename}")
+            else:
+                print(f"✅ Already in Drive: {filename}")
+        
+        # Sort by modification time (oldest first) to upload in chronological order
+        missing_files.sort(key=os.path.getmtime)
+        
+        print(f"\n📊 Comparison Results:")
+        print(f"📁 Local files: {len(all_local_files)}")
+        print(f"☁️  Drive files: {len(self.drive_files)}")
+        print(f"📤 Missing files to upload: {len(missing_files)}")
+        
+        return missing_files
+    
+    def show_upload_preview(self, file_list):
+        """Show user what will be uploaded and ask for confirmation"""
+        if not file_list:
+            print("✅ No files need to be uploaded! All screenshots are already in Google Drive.")
+            return False  # Nothing to upload
+        
+        print(f"\n📋 UPLOAD PREVIEW - Found {len(file_list)} file(s) missing from Google Drive:")
+        print("=" * 70)
+        
+        for i, file_path in enumerate(file_list, 1):
+            filename = os.path.basename(file_path)
+            file_date = datetime.fromtimestamp(os.path.getmtime(file_path))
+            file_size = os.path.getsize(file_path)
+            file_size_mb = file_size / (1024 * 1024)  # Convert to MB
+            
+            print(f"{i:2d}. 📸 {filename}")
+            print(f"    📅 Date: {file_date.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"    📏 Size: {file_size_mb:.2f} MB")
+            print()
+        
+        print("=" * 70)
+        print(f"📊 Total files: {len(file_list)}")
+        total_size = sum(os.path.getsize(f) for f in file_list) / (1024 * 1024)
+        print(f"📦 Total size: {total_size:.2f} MB")
+        print(f"🗂️  Destination: Google Drive → AI Road → Capturas de pantalla")
+        print("=" * 70)
+        
+        # Ask for confirmation
+        while True:
+            response = input("\n❓ Do you want to upload these missing files? (y/n): ").lower().strip()
+            if response in ['y', 'yes', 'si', 's']:
+                print("✅ Upload confirmed! Starting upload process...")
+                return True
+            elif response in ['n', 'no']:
+                print("❌ Upload cancelled by user.")
+                return False
+            else:
+                print("⚠️  Please enter 'y' for yes or 'n' for no")
     
     def upload_to_drive(self, file_path):
         """Upload a file to Google Drive"""
         filename = os.path.basename(file_path)
-        
-        # Check if file was already uploaded (by our log)
         file_mod_time = os.path.getmtime(file_path)
-        if filename in self.uploaded_files:
-            if self.uploaded_files[filename] >= file_mod_time:
-                print(f"⏭️  File '{filename}' already uploaded")
-                return True
-        
-        # Check if file exists in Drive (additional safety check)
-        print("Checking if file already exists in Drive...")
-        if self.file_exists_in_drive(filename):
-            print(f"⚠️  File '{filename}' already exists in Drive folder")
-            # Update our log to reflect this
-            self.uploaded_files[filename] = file_mod_time
-            self.save_upload_log()
-            return True
         
         try:
-            print(f"Starting upload of '{filename}'...")
+            print(f"📤 Starting upload of '{filename}'...")
+            
             # Prepare file metadata
             file_metadata = {
                 'name': filename,
@@ -174,46 +244,89 @@ class ScreenshotUploader:
             
             # Update upload log
             self.uploaded_files[filename] = file_mod_time
-            self.save_upload_log()
             
-            print(f"✅ Successfully uploaded '{filename}' to Google Drive")
+            print(f"✅ Successfully uploaded '{filename}'")
             print(f"📁 File ID: {file.get('id')}")
             return True
             
         except HttpError as error:
-            print(f"❌ Error uploading file: {error}")
+            print(f"❌ Error uploading '{filename}': {error}")
             return False
+    
+    def upload_multiple_screenshots(self, file_list):
+        """Upload multiple screenshots"""
+        if not file_list:
+            print("⏭️  No files to upload")
+            return True
+        
+        successful_uploads = 0
+        failed_uploads = 0
+        
+        print(f"🚀 Starting batch upload of {len(file_list)} files...")
+        
+        for i, file_path in enumerate(file_list, 1):
+            filename = os.path.basename(file_path)
+            file_date = datetime.fromtimestamp(os.path.getmtime(file_path))
+            
+            print(f"\n--- Upload {i}/{len(file_list)} ---")
+            print(f"📸 File: {filename}")
+            print(f"📅 Date: {file_date.strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            if self.upload_to_drive(file_path):
+                successful_uploads += 1
+            else:
+                failed_uploads += 1
+            
+            # Save log after each upload to prevent data loss
+            self.save_upload_log()
+        
+        print(f"\n📊 Upload Summary:")
+        print(f"✅ Successful: {successful_uploads}")
+        print(f"❌ Failed: {failed_uploads}")
+        print(f"📝 Total processed: {len(file_list)}")
+        
+        return failed_uploads == 0
     
     def run(self):
         """Main execution function"""
-        print("🚀 Starting Screenshot Auto-Uploader")
-        print(f"📂 Scanning folder: {LOCAL_FOLDER}")
+        print("🚀 Starting Screenshot Auto-Uploader (Drive Sync version)")
+        print(f"📂 Local folder: {LOCAL_FOLDER}")
+        print(f"☁️  Google Drive folder: AI Road → Capturas de pantalla")
         
         # Authenticate with Google Drive
         if not self.authenticate_google_drive():
             print("❌ Authentication failed")
             return
         
-        # Find newest screenshot
-        newest_file = self.get_newest_screenshot()
-        if not newest_file:
-            print("❌ No screenshots found to upload")
+        # Scan Google Drive folder first
+        if not self.scan_google_drive_folder():
+            print("❌ Failed to scan Google Drive folder")
             return
         
-        filename = os.path.basename(newest_file)
-        file_date = datetime.fromtimestamp(os.path.getmtime(newest_file))
-        print(f"📸 Found newest screenshot: '{filename}'")
-        print(f"📅 File date: {file_date.strftime('%Y-%m-%d %H:%M:%S')}")
+        # Get all screenshots in local folder
+        all_local_screenshots = self.get_all_screenshots()
+        if not all_local_screenshots:
+            print("❌ No screenshots found in local folder")
+            return
         
-        # Upload to Drive
-        success = self.upload_to_drive(newest_file)
+        # Find screenshots missing from Google Drive
+        missing_screenshots = self.get_missing_screenshots(all_local_screenshots)
+        
+        # Show preview and ask for confirmation
+#        if not self.show_upload_preview(missing_screenshots):
+#            print("🛑 Upload process stopped.")
+#            return
+        
+        # Upload all missing screenshots
+        success = self.upload_multiple_screenshots(missing_screenshots)
         
         if success:
-            print("🎉 Upload process completed successfully!")
+            print("\n🎉 All uploads completed successfully!")
+            print("📱 Your screenshots are now ready to download on your phone!")
         else:
-            print("❌ Upload process failed")
+            print("\n⚠️  Some uploads failed - check the log above")
 
 if __name__ == "__main__":
-    print("Starting uploader...")
+    print("Starting Google Drive sync uploader...")
     uploader = ScreenshotUploader()
     uploader.run()
