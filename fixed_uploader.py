@@ -58,6 +58,7 @@ class ScreenshotUploader:
         print("Starting authentication...")
         creds = None
         
+        # The file token.json stores the user's access and refresh tokens.
         if os.path.exists('token.json'):
             print("Found existing token.json")
             try:
@@ -65,7 +66,15 @@ class ScreenshotUploader:
                 print("Loaded credentials from token.json")
             except Exception as e:
                 print(f"Error loading token.json: {e}")
+                # If token.json is invalid, ask user if it should remove it
+                user_input = input("Token is invalid. Remove token.json? (y/n): ")
+                if user_input.lower() == 'y':
+                    os.remove('token.json')
+                    print("token.json removed")
+                creds = None
         
+
+        # If there are no (valid) credentials available, let the user log in.
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 print("Refreshing expired credentials...")
@@ -86,6 +95,7 @@ class ScreenshotUploader:
                     print(f"Authentication failed: {e}")
                     return False
             
+            # Save the credentials for the next run
             try:
                 with open('token.json', 'w') as token:
                     token.write(creds.to_json())
@@ -221,6 +231,7 @@ class ScreenshotUploader:
     def upload_to_drive(self, file_path):
         """Upload a file to Google Drive"""
         filename = os.path.basename(file_path)
+        # Check if file was already uploaded (by our log)
         file_mod_time = os.path.getmtime(file_path)
         
         try:
