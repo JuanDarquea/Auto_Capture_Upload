@@ -10,6 +10,17 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from googleapiclient.errors import HttpError
+import sys
+import argparse
+
+def parse_arguments(): 
+    parser = argparse.ArgumentParser(description='Screenshot uploader with startup/shutdown modes')
+    parser.add_argument('--mode', choices=['startup', 'shutdown'], default='normal',
+                       help='Run mode: startup, shutdown, or normal')
+    parser.add_argument('--silent', action='store_true',
+                       help='Run without user confirmation prompts')
+    return parser.parse_args()
+
 
 # Configuration
 LOCAL_FOLDER = r"C:\Users\USUARIO\OneDrive\Documentos\My_Projects\Capturas de pantalla"
@@ -22,6 +33,7 @@ class ScreenshotUploader:
         print("Initializing uploader...")
         self.service = None
         self.drive_files = {}  # Will store files currently in Google Drive
+        self.silent_mode = False
         try:
             self.uploaded_files = self.load_upload_log()
             print("Upload log loaded successfully")
@@ -55,7 +67,7 @@ class ScreenshotUploader:
     
     def authenticate_google_drive(self):
         """Authenticate with Google Drive API"""
-        print("Starting authentication...")
+        print("\nStarting authentication...")
         creds = None
         
         # The file token.json stores the user's access and refresh tokens.
@@ -113,7 +125,7 @@ class ScreenshotUploader:
     
     def scan_google_drive_folder(self):
         """Scan the Google Drive folder to see what files already exist"""
-        print("📡 Scanning Google Drive folder for existing files...")
+        print("\n📡 Scanning Google Drive folder for existing files...")
         
         try:
             # Query for all files in the specific Drive folder
@@ -153,7 +165,7 @@ class ScreenshotUploader:
     
     def get_all_screenshots(self):
         """Find ALL .jpg files in the local folder"""
-        print(f"📂 Scanning local folder: {LOCAL_FOLDER}")
+        print(f"\n📂 Scanning local folder: {LOCAL_FOLDER}")
         if not os.path.exists(LOCAL_FOLDER):
             print(f"❌ Folder does not exist: {LOCAL_FOLDER}")
             return []
@@ -166,7 +178,7 @@ class ScreenshotUploader:
     
     def get_missing_screenshots(self, all_local_files):
         """Compare local files with Google Drive files to find missing ones"""
-        print("🔍 Comparing local folder with Google Drive folder...")
+        print("\n🔍 Comparing local folder with Google Drive folder...")
         missing_files = []
         
         for file_path in all_local_files:
@@ -215,6 +227,11 @@ class ScreenshotUploader:
         print(f"📦 Total size: {total_size:.2f} MB")
         print(f"🗂️  Destination: Google Drive → AI Road → Capturas de pantalla")
         print("=" * 70)
+
+        # Skip confirmation in silent mode
+        if self.silent_mode:
+            print("🤖 Silent mode: Auto-confirming upload...")
+            return True
         
         # Ask for confirmation
         while True:
@@ -231,7 +248,6 @@ class ScreenshotUploader:
     def upload_to_drive(self, file_path):
         """Upload a file to Google Drive"""
         filename = os.path.basename(file_path)
-        # Check if file was already uploaded (by our log)
         file_mod_time = os.path.getmtime(file_path)
         
         try:
@@ -300,7 +316,7 @@ class ScreenshotUploader:
     
     def run(self):
         """Main execution function"""
-        print("🚀 Starting Screenshot Auto-Uploader (Drive Sync version)")
+        print("\n🚀 Starting Screenshot Auto-Uploader (Drive Sync version)")
         print(f"📂 Local folder: {LOCAL_FOLDER}")
         print(f"☁️  Google Drive folder: AI Road → Capturas de pantalla")
         
@@ -338,6 +354,15 @@ class ScreenshotUploader:
             print("\n⚠️  Some uploads failed - check the log above")
 
 if __name__ == "__main__":
-    print("Starting Google Drive sync uploader...")
+    args = parse_arguments()
+
+    print(f"Starting Google Drive sync uploader in {args.mode} mode...")
+
     uploader = ScreenshotUploader()
+
+    # Modify the uploader behavior based on mode
+    if args.mode in ['startup', 'shutdown']:
+        uploader.silent_mode = True
+        print(f"Running in {args.mode} mode - automated execution")
+
     uploader.run()
