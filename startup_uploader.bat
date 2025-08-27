@@ -26,10 +26,18 @@ echo ================================================
 
 REM Show the last few lines of the log file
 if exist execution_log.txt (
-    echo Latest log entries:
+    echo ✅ Found execution_log.txt
+    echo Latest 3 log entries:
     powershell "Get-Content execution_log.txt | Select-Object -Last 3"
 ) else (
-    echo No log file found yet.
+    echo execution_log.txt not found
+    echo Looking in: %cd%
+)
+
+if exist detailed_execution_log.json (
+    echo ✅ Found detailed_execution_log.json
+) else (
+    echo ❌ detailed_execution_log.json not found
 )
 
 echo.

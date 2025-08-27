@@ -19,8 +19,18 @@ echo ================================================
 
 REM Quick log check (faster for shutdown)
 if exist execution_log.txt (
-    echo Last entry:
-    powershell "Get-Content execution_log.txt | Select-Object -Last 1"
+    echo ✅ Found execution_log.txt
+    echo Last 2 entries:
+    powershell "Get-Content execution_log.txt | Select-Object -Last 2"
+) esle (
+    echo execution_log.txt not found
+    echo Looking in: %cd%
+)
+
+if exist detailed_execution_log.json (
+    echo ✅ Found detailed_execution_log.json
+) else (
+    echo ❌ detailed_execution_log.json not found
 )
 
 echo Upload completed at %date% %time% >> upload_history.log
