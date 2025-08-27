@@ -31,6 +31,9 @@ LOCAL_FOLDER = r"C:\Users\USUARIO\OneDrive\Documentos\My_Projects\Capturas de pa
 DRIVE_FOLDER_ID = "1FbAfXLxmJbpcEtm0ctoDrjydNriRyECA"
 SCOPES = ['https://www.googleapis.com/auth/drive']
 LOG_FILE = "upload_log.json"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+EXECUTION_LOG_PATH = os.path.join(SCRIPT_DIR, "execution_log.txt")
+DETAILED_LOG_PATH = os.path.join(SCRIPT_DIR, "detailed_execution_log.json")
 
 class ScreenshotUploader:
     def __init__(self):
@@ -93,11 +96,13 @@ class ScreenshotUploader:
         }
         
         try:
-            with open("detailed_execution_log.json", "a", encoding='utf-8') as f:
-                f.write(json.dumps(log_data, indent=2) + "\n")
+            with open(DETAILED_LOG_PATH, "a", encoding='utf-8') as f:
+                f.write(json.dumps(log_data, indent=2) + "\n" + "="*50 + "\n")
             print("Detailed log entry created")
+            print(f"📍 Detailed log location: {DETAILED_LOG_PATH}")
         except Exception as e:
             print(f"Could not write detailed log: {e}")
+            print(f"🔍 Attempted path: {DETAILED_LOG_PATH}")
 
     def upload_with_retry(self, file_path, max_retries=3):
         """
@@ -216,10 +221,13 @@ class ScreenshotUploader:
         log_entry += "\n"        
         try:
             # Append to log file (creates file if it doesn't exist)
-            with open("execution_log.txt", "a", encoding='utf-8') as f:
+            with open(EXECUTION_LOG_PATH, "a", encoding='utf-8') as f:
                 f.write(log_entry)
+                print(f"Logged: {status} - {file_count} files processed")
+                print(f"Log location: {EXECUTION_LOG_PATH}") 
         except Exception as e:
             print(f"Could not write to log: {e}")
+            print(f"Attempted path: {EXECUTION_LOG_PATH}")
             # Don't let logging failure break the main functionality
     
     def authenticate_google_drive(self):
@@ -550,7 +558,7 @@ class ScreenshotUploader:
             
             # Show preview and ask for confirmation
 #           if not self.show_upload_preview(missing_screenshots):
-#               print("🛑 Upload process stopped.")
+#               print("Upload process stopped.")
 #               return
 
             # Count files that will be processed
@@ -560,13 +568,14 @@ class ScreenshotUploader:
             success = self.upload_multiple_screenshots(missing_screenshots)
             
             if success:
-                print("\n🎉 All uploads completed successfully!")
-                print("📱 Your screenshots are now ready to download on your phone!")
+                print("\nAll uploads completed successfully!")
+                print("Your screenshots are now ready to download on your phone!")
+                self.log_execution(mode, True, files_processed)
             else:
-                print("\n⚠️  Some uploads failed - check the log above")
+                print("\nSome uploads failed - check the log above")
         except Exception as e:
             error_occurred = str(e)
-            print(f"\n⚠️ Error during execution: {error_occurred}")
+            print(f"\nError during execution: {error_occurred}")
             self.log_execution(mode, False, files_processed, error_occurred)
 
 if __name__ == "__main__":
